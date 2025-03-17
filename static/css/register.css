@@ -1,0 +1,102 @@
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #081b29;
+}
+
+
+/* Additional styles to match index.css */
+.container {
+    position: relative;
+    height: 1000px;
+    width: 850px;
+    border: 2px solid #0ef;
+    background: transparent;
+    box-shadow: 0 0 25px rgb(45, 108, 112);
+    color: #0ef;
+}
+
+.form-control{
+    background-color: rgb(155, 155, 155);
+    box-shadow:0 0 4px rgb(45, 108, 112);
+    width: 60%;
+}
+
+.form-select {
+    background-color: rgb(155, 155, 155);
+    box-shadow:0 0 4px rgb(45, 108, 112);
+    width: 60%;
+}
+.btn {
+    margin-left: 8%;
+    position: relative;
+    width: 26%;
+    height: 45px;
+    background: transparent;
+    border: 2px solid #0ef;
+    outline: none;
+    border-radius: 40px;
+    cursor: pointer;
+    font-size: 16px;
+    color: #fff;
+    font-weight: 600;
+    z-index: 1;
+    overflow: hidden;
+}
+
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: -100;
+    left: 0;
+    width: 100%;
+    height: 300%;
+    background: linear-gradient(#081b29, rgb(35, 105, 110), #081b29, #0ef);
+    z-index: -1;
+    transition: .5s;
+}
+
+.btn:hover::before {
+    top: 0;
+}
+
+.btn1 {
+    margin-top: 5%;
+    position: absolute;
+    width: 40%;
+    height: 45px;
+    background: #081b29;
+    border: 2px solid #0ef;
+    outline: none;
+    border-radius: 40px;
+    cursor: pointer;
+    font-size: 16px;
+    color: #fff;
+    font-weight: 600;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.btn1::before {
+    content: '';
+    position: absolute;
+    top: -100;
+    left: 0;
+    width: 100%;
+    height: 300%;
+    background: linear-gradient(#081b29, #0ef, #081b29, #0ef);
+    z-index: -1;
+    transition: .5s;
+}
+
+.btn1:hover::before {
+    top: 0;
+}
+
+
+.active .btn {
+    margin-top: 3.5%;
+}

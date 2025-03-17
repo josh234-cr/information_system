@@ -7,10 +7,9 @@
     <title>Register</title>
     <!-- Add Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-
+    <link rel="stylesheet" href="{% static 'css/register.css' %}">
 </head>
 <body>
-
     <div class="container mt-4">
         <h2 class="text-center">Refugee Registration</h2>
     
@@ -27,67 +26,16 @@
             {{ form.as_p }}
     
             <input type="hidden" id="fingerprint_data" name="fingerprint_data">
-    
+            <br>
             <!-- Fingerprint Scan Button -->
-            <button type="button" id="scan-fingerprint" class="btn btn-primary">Scan Fingerprint</button>
-    
+            <button type="button" id="scan-fingerprint" class="btn">Click To Scan Fingerprint</button>
+            <br>
             <!-- Submit Button (Initially Disabled) -->
-            <button type="submit" id="register-button" class="btn btn-success" disabled>Register</button>
+            <button type="submit" id="register-button" class="btn1 btn-success">Register</button>
         </form>
     </div>
     
-    <script>
-        document.getElementById("scan-fingerprint").addEventListener("click", async function() {
-            try {
-                // Fetch WebAuthn challenge
-                let challengeResponse = await fetch("{% url 'generate_fingerprint_challenge' %}");
-                let challengeData = await challengeResponse.json();
-    
-                // Decode challenge
-                let challengeBuffer = Uint8Array.from(atob(challengeData.challenge), c => c.charCodeAt(0));
-    
-                // Request fingerprint authentication
-                let credential = await navigator.credentials.create({
-                    publicKey: {
-                        challenge: challengeBuffer,
-                        rp: { name: "Refugee Registration System" },
-                        user: { id: new Uint8Array(16), name: "refugee@example.com", displayName: "Refugee" },
-                        pubKeyCredParams: [
-                            { type: "public-key", alg: -7 },  // ES256 (ECDSA with SHA-256)
-                            { type: "public-key", alg: -257 } // RS256 (RSA with SHA-256)
-                        ],
-                    }
-                });
-    
-                // Convert fingerprint data to JSON
-                let fingerprintData = {
-                    id: credential.id,
-                    rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
-                    type: credential.type,
-                    response: {
-                        attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject))),
-                        clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON)))
-                    },
-                    challenge: challengeData.challenge  // Store challenge for validation
-                };
-    
-                // Store fingerprint data in hidden input field
-                document.getElementById("fingerprint_data").value = JSON.stringify(fingerprintData);
-    
-                // Enable the Register button
-                document.getElementById("register-button").disabled = false;
-    
-                alert("Fingerprint scanned successfully! You can now register.");
-    
-            } catch (error) {
-                console.error("Fingerprint scan failed:", error);
-                alert("Fingerprint authentication failed. Please try again.");
-            }
-        });
-    </script>
-    
-</html>
-    <!-- Add Bootstrap JS -->
+    <script src="{% static 'js/register.js' %}"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.min.js"></script>
 </body>
 </html>

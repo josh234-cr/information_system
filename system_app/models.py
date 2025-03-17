@@ -1,14 +1,59 @@
+#models.py
 from django.db import models
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 
-# Create your models here.
+class CustomUserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError("The Email field must be set")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        return self.create_user(email, password, **extra_fields)
+
+
+class CustomUser(AbstractUser):
+    username = None  
+    email = models.EmailField(unique=True)
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
+
+    objects = CustomUserManager()
+
+    def __str__(self):
+        return self.email
+
+
+class WebAuthnCredential(models.Model):
+    """Stores WebAuthn passkeys for biometric authentication via Windows Hello."""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    credential_id = models.CharField(max_length=255, unique=True)
+    public_key = models.TextField()
+    sign_count = models.IntegerField(default=0)
+    transports = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return f"Credential for {self.user.email}"
+
+
+class Passkey(models.Model):
+    """Passkey authentication for users."""
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    passkey = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Passkey for {self.user.email}"
+
 
 class Refugee(models.Model):
-    GENDER_CHOICES = [
-        ("Male", "Male"),
-        ("Female", "Female"),
-        ("Other", "Other"),
-    ]
-    
+    GENDER_CHOICES = [("Male", "Male"), ("Female", "Female"), ("Other", "Other")]
     REFUGEE_STATUS_CHOICES = [
         ("Asylum Seeker", "Asylum Seeker"),
         ("Recognized Refugee", "Recognized Refugee"),
@@ -17,15 +62,16 @@ class Refugee(models.Model):
 
     full_name = models.CharField(max_length=255)
     date_of_birth = models.DateField()
-    gender = models.CharField(max_length=10,choices=GENDER_CHOICES)
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     nationality = models.CharField(max_length=100)
     language_spoken = models.CharField(max_length=255)
     refugee_status = models.CharField(max_length=50, choices=REFUGEE_STATUS_CHOICES)
-    
-    # Biometric Data (Stored as File or Hash)
+
+    # Biometric Data
     fingerprint_data = models.JSONField(null=True, blank=True)
     facial_image = models.ImageField(upload_to='faces/', null=True, blank=True)
-    
+    facial_embedding = models.JSONField()  # Stores facial vector data
+
     # Contact Information
     phone_number = models.CharField(max_length=20, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)

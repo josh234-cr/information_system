@@ -1,13 +1,11 @@
 from django.urls import path
-from .views import institution_dashboard, register_refugee
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .views import generate_fingerprint_challenge
+from .views import institution_dashboard, register_refugee,auth_view
+from .views import begin_registration, complete_registration
 
 urlpatterns = [
+    path("", auth_view, name="auth"),  # One URL for login & signup
     path('dashboard/', institution_dashboard, name='institution_dashboard'),
     path('register/', register_refugee, name='register_refugee'),
-    path('register/', register_refugee, name='register_refugee'),
-    path("api/generate_fingerprint_challenge/", generate_fingerprint_challenge, name="generate_fingerprint_challenge"),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+        path("register/begin/", begin_registration, name="begin_registration"),
+    path("register/complete/", complete_registration, name="complete_registration"),
 ]

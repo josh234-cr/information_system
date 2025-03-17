@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -36,6 +37,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+AUTH_USER_MODEL = 'system_app.CustomUser'  # Replace 'system_app' with your actual app name
 
 # Application definition
 
@@ -139,7 +141,16 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = 'static/'
+AUTHENTICATION_BACKENDS = [
+    'system_app.authentication.EmailAuthBackend',  # Custom email authentication
+    'django.contrib.auth.backends.ModelBackend',  # Default authentication
+]
+
+STATIC_URL = '/static/'  # Ensure it has a leading and trailing slash
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),  # If you have a global 'static' folder
+]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
