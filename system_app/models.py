@@ -69,8 +69,7 @@ class Refugee(models.Model):
 
     # Biometric Data
     fingerprint_data = models.JSONField(null=True, blank=True)
-    facial_image = models.ImageField(upload_to='faces/', null=True, blank=True)
-    facial_embedding = models.JSONField()  # Stores facial vector data
+    facial_embedding = models.JSONField(null=True, blank=True)  # Stores facial vector data
 
     # Contact Information
     phone_number = models.CharField(max_length=20, null=True, blank=True)

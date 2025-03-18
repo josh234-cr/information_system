@@ -1,3 +1,4 @@
+import os
 import json
 import base64
 import secrets
@@ -19,30 +20,187 @@ from fido2.client import CollectedClientData
 from fido2.cose import ES256
 from fido2.utils import websafe_decode, websafe_encode
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+
+# capture face
+
 import cv2
-import numpy as np
-from django.http import JsonResponse
+import os
+import json
+import uuid
+from django.http import JsonResponse, HttpResponseRedirect
 from deepface import DeepFace
-from .models import Refugee
+from system_app.models import Refugee
 
 def capture_face(request):
-    """Captures an image from the webcam and processes it."""
-    cap = cv2.VideoCapture(0)  # Open webcam
-    ret, frame = cap.read()  
+    full_name = request.GET.get("username")
+
+    if not full_name:
+        return JsonResponse({"error": "Missing refugee username."}, status=400)
+
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        return JsonResponse({"error": "Could not access webcam."}, status=400)
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            return JsonResponse({"error": "Failed to capture image."}, status=400)
+
+        # Show the live webcam feed
+        cv2.imshow("Scanning Face - Press Space to Capture", frame)
+
+        # Press "Space" to capture, "ESC" to exit
+        key = cv2.waitKey(1) & 0xFF
+        if key == 32:  # Space key
+            break
+        elif key == 27:  # ESC key
+            cap.release()
+            cv2.destroyAllWindows()
+            return JsonResponse({"error": "Face capture cancelled."}, status=400)
+
     cap.release()
+    cv2.destroyAllWindows()
 
-    if not ret:
-        return JsonResponse({"error": "Could not capture image"}, status=400)
-
-    # Save the image temporarily
-    img_path = "temp_face.jpg"
+    # ✅ Save the captured image
+    img_filename = f"{full_name.replace(' ', '_')}_{uuid.uuid4().hex[:8]}.jpg"
+    img_path = os.path.join("media/faces", img_filename)
+    os.makedirs("media/faces", exist_ok=True)
     cv2.imwrite(img_path, frame)
 
-    # Extract facial embedding
-    embedding = DeepFace.represent(img_path, model_name="Facenet")
+    try:
+        # ✅ Detect face before processing
+        detected_faces = DeepFace.extract_faces(img_path, detector_backend="opencv")
 
-    return JsonResponse({"embedding": embedding})
+        if not detected_faces:
+            return JsonResponse({"error": "No face detected. Try again in better lighting."}, status=400)
 
+        # ✅ Generate embedding vector
+        embeddings = DeepFace.represent(img_path, model_name="Facenet", enforce_detection=False)
+
+        if not embeddings:
+            return JsonResponse({"error": "No embedding generated."}, status=400)
+
+        embedding_vector = embeddings[0]["embedding"]
+
+        # ✅ Save embedding to refugee profile
+        try:
+            refugee = Refugee.objects.get(full_name=full_name)
+            refugee.facial_embedding = json.dumps(embedding_vector)  
+            refugee.save()
+        except Refugee.DoesNotExist:
+            return JsonResponse({"error": "Refugee not found in the database."}, status=404)
+
+        return HttpResponseRedirect("/dashboard/")
+
+    except ValueError as e:
+        print("Debug Error")
+        return JsonResponse({"error": str(e)}, status=400)
+
+# authenticate using facial recognition
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import Refugee
+import cv2
+import numpy as np
+import base64
+from io import BytesIO
+from PIL import Image
+from deepface import DeepFace
+import json
+from scipy.spatial.distance import cosine
+
+@csrf_exempt
+def authenticate_refugee(request):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "Invalid request method"})
+
+    try:
+        data = json.loads(request.body)
+        image_data = data.get("image")
+
+        if not image_data:
+            return JsonResponse({"success": False, "error": "No image provided"})
+
+        # Decode base64 image
+        image_bytes = base64.b64decode(image_data.split(",")[1])
+        image = Image.open(BytesIO(image_bytes))
+        image = np.array(image)
+
+        # Convert to OpenCV format
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Extract face embedding directly
+        embedding_result = DeepFace.represent(image, model_name="Facenet", enforce_detection=False)
+        if not embedding_result:
+            return JsonResponse({"success": False, "error": "No face detected"})
+
+        embedding = np.array(embedding_result[0]["embedding"]).flatten()  # Flatten embedding
+
+        # Compare extracted embedding with stored embeddings
+        refugees = Refugee.objects.exclude(facial_embedding=None) 
+
+        print("Debugging about to start")
+
+        print(f"Total refugees with embeddings: {refugees.count()}")
+
+
+        for refugee in refugees:
+
+            print("Debugging in the for loop started")
+            # Convert stored embedding from JSON
+            try:
+                stored_embedding = json.loads(refugee.facial_embedding)  # Convert from JSON string
+
+                # Ensure stored_embedding is a list containing at least one dictionary
+                if isinstance(stored_embedding, list) and len(stored_embedding) > 0:
+                    first_entry = stored_embedding[0]  # Extract the first dictionary
+
+                    if isinstance(first_entry, dict) and "embedding" in first_entry:
+                        stored_embedding = first_entry["embedding"]  # Extract the actual embedding list
+                    else:
+                        print("❌ Error: 'embedding' key not found in the stored data")
+                        continue  # Skip this refugee
+
+                else:
+                    print("❌ Error: Stored embedding is not a valid list")
+                    continue  # Skip this refugee
+
+                # Convert to NumPy array
+                stored_embedding = np.array(stored_embedding, dtype=np.float32).flatten()
+
+                # Debugging outputs
+                print(f"✅ Final stored embedding shape: {stored_embedding.shape}")
+                print(f"✅ First 5 values of stored embedding: {stored_embedding[:5]}")  # Preview
+
+                # Compute similarity
+                similarity_score = 1 - cosine(embedding, stored_embedding)
+                threshold = 0.6
+
+                if similarity_score >= threshold:
+                    return JsonResponse({
+                        "success": True,
+                        "name": refugee.name,
+                        "nationality": refugee.nationality,
+                        "age": refugee.age,
+                        "institution": refugee.registered_institution.name
+                    })
+
+            except Exception as e:
+                print(f"❌ Error processing {refugee.full_name}: {e}")
+                continue  # Skip and proceed to next refugee
+
+            return JsonResponse({"success": False, "error": "No matching refugee found"})
+
+
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)})
+
+
+
+##
+##
 CustomUser = get_user_model()
 RP_ID = "localhost"
 CHALLENGES = {}
@@ -86,6 +244,9 @@ def register_refugee(request):
         form = RefugeeRegistrationForm(request.POST)
         if form.is_valid():
             refugee = form.save(commit=False)
+            
+            '''
+            # Fingerprint data
             fingerprint_data = request.POST.get("fingerprint_data")
             if fingerprint_data:
                 fingerprint_data = json.loads(fingerprint_data)
@@ -93,11 +254,19 @@ def register_refugee(request):
                 stored_challenge = CHALLENGES.pop(session_key, None)
                 if not stored_challenge or stored_challenge != fingerprint_data["challenge"]:
                     return JsonResponse({"error": "Invalid fingerprint challenge!"}, status=400)
-                refugee.fingerprint_data = fingerprint_data
+                refugee.fingerprint_data = fingerprint_data'
+                
+                '''
+            
             refugee.save()
-            return redirect("institution_dashboard")
+            
+            # Redirect to the facial capture page with full name as a parameter
+            full_name = f"{refugee.full_name}"  # Adjust according to model fields
+            return redirect(f"/capture/?username={full_name}")
+    
     else:
         form = RefugeeRegistrationForm()
+    
     return render(request, "refugees/register.html", {"form": form})
 
 def registration_success(request):
