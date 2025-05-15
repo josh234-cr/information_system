@@ -64,6 +64,8 @@ class RefugeeRegistrationForm(forms.ModelForm):
             "email",
             "location",
             "fingerprint_data",
+            "work_experience",
+            "education_level",
         ]
         widgets = {
             "full_name": forms.TextInput(attrs={"class": "form-control", "id": "full-name"}),
@@ -76,5 +78,7 @@ class RefugeeRegistrationForm(forms.ModelForm):
             "email": forms.EmailInput(attrs={"class": "form-control", "id": "email"}),
             "location": forms.TextInput(attrs={"class": "form-control", "id": "location"}),
             "fingerprint_data": forms.HiddenInput(),
+            "work_experience": forms.Textarea(attrs={"class": "form-control", "id": "work-experience"}),
+            "education_level": forms.TextInput(attrs={"class": "form-control", "id": "education"}),
         }
 

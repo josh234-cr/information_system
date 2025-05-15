@@ -13,6 +13,10 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 
+import pymysql
+pymysql.install_as_MySQLdb()
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -103,7 +107,17 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    },
+
+    # MySQL database configuration
+    'health_db': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'health_system',
+        'USER': 'root',
+        'PASSWORD': 'ghost',
+        'HOST': 'localhost',  # Use 'localhost' if running locally
+        'PORT': '3306',  # Default MySQL port
+    },
 }
 
 

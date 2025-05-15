@@ -2,43 +2,115 @@ import os
 import json
 import base64
 import secrets
+import cv2
+import uuid
+from fido2.cose import ES256
+import numpy as np
+from PIL import Image
+from io import BytesIO
+from django.contrib import messages
+from fido2.server import Fido2Server
+from fido2.client import CollectedClientData
 from .models import Refugee, WebAuthnCredential
+from rest_framework import status
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib import messages
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from rest_framework import status
 from .serializers import RefugeeSerializer
-from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login, get_user_model
-from .forms import RefugeeRegistrationForm, CustomUserCreationForm, CustomAuthenticationForm
-from fido2.server import Fido2Server
-from fido2.webauthn import PublicKeyCredentialRpEntity, AttestationObject, AuthenticatorData
-from fido2.client import CollectedClientData
-from fido2.cose import ES256
 from fido2.utils import websafe_decode, websafe_encode
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-
-# capture face
-
-import cv2
+from django.http import JsonResponse, HttpResponseRedirect
+from deepface import DeepFace
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import Refugee
+from deepface import DeepFace
+from scipy.spatial.distance import cosine
+from .forms import RefugeeRegistrationForm, CustomUserCreationForm, CustomAuthenticationForm
+from fido2.webauthn import PublicKeyCredentialRpEntity, AttestationObject, AuthenticatorData
+from fido2.webauthn import PublicKeyCredentialRpEntity, AttestationObject, AuthenticatorData
+from django.shortcuts import render
+from django.db import connections
+from django.shortcuts import render
+from django.db import connections
 import os
 import json
 import uuid
+import cv2
+import ipfshttpclient
+import numpy as np
+import logging
 from django.http import JsonResponse, HttpResponseRedirect
 from deepface import DeepFace
-from system_app.models import Refugee
+from .models import Refugee
+from django_ratelimit.decorators import ratelimit
+import logging
+import requests
+from deepface import DeepFace
+from scipy.spatial.distance import cosine
+import json
+import numpy as np
+import base64
+import cv2
+from PIL import Image
+from io import BytesIO
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import requests
+import json
 
+# connect to the MySQL database
+def appointments(request):
+    with connections['default'].cursor() as sqlite_cursor, connections['health_db'].cursor() as mysql_cursor:
+        # Get names from the refugee system (SQLite)
+        sqlite_cursor.execute("SELECT full_name FROM system_app_refugee")
+        refugee_names = {row[0] for row in sqlite_cursor.fetchall()}  # Store names in a set for quick lookup
+
+        # Get appointments from MySQL
+        mysql_cursor.execute("SELECT doctor_name, patient_name, appointment_date, appointment_time, created_at FROM Appointments")
+        all_appointments = mysql_cursor.fetchall()
+
+        # Filter appointments where patient_name exists in refugee_names
+        matching_appointments = [appointment for appointment in all_appointments if appointment[1] in refugee_names]
+
+    return render(request, 'appointments.html', {'records': matching_appointments})
+
+
+def health_records(request):
+    with connections['default'].cursor() as sqlite_cursor, connections['health_db'].cursor() as mysql_cursor:
+        # Get names from the refugee system (SQLite)
+        sqlite_cursor.execute("SELECT full_name FROM system_app_refugee")
+        refugee_names = {row[0] for row in sqlite_cursor.fetchall()}  # Store names in a set for quick lookup
+
+        # Get health records from MySQL
+        mysql_cursor.execute("SELECT patient_name, diagnosis, treatment, created_at FROM health_records")
+        all_health_records = mysql_cursor.fetchall()
+
+        # Filter records where patient_name exists in refugee_names
+        matching_records = [record for record in all_health_records if record[0] in refugee_names]
+
+    return render(request, 'health_records.html', {'records': matching_records})
+
+
+
+# capture face using webcam
+
+logger = logging.getLogger(__name__)
+
+@ratelimit(key='ip', rate='5/m')  # Prevent spam
 def capture_face(request):
     full_name = request.GET.get("username")
 
     if not full_name:
         return JsonResponse({"error": "Missing refugee username."}, status=400)
+    
+    if len(full_name) > 100 or not full_name.replace(" ", "").isalnum():
+        return JsonResponse({"error": "Invalid username format."}, status=400)
 
     cap = cv2.VideoCapture(0)
-
     if not cap.isOpened():
         return JsonResponse({"error": "Could not access webcam."}, status=400)
 
@@ -47,10 +119,7 @@ def capture_face(request):
         if not ret:
             return JsonResponse({"error": "Failed to capture image."}, status=400)
 
-        # Show the live webcam feed
         cv2.imshow("Scanning Face - Press Space to Capture", frame)
-
-        # Press "Space" to capture, "ESC" to exit
         key = cv2.waitKey(1) & 0xFF
         if key == 32:  # Space key
             break
@@ -62,54 +131,94 @@ def capture_face(request):
     cap.release()
     cv2.destroyAllWindows()
 
-    # ✅ Save the captured image
-    img_filename = f"{full_name.replace(' ', '_')}_{uuid.uuid4().hex[:8]}.jpg"
-    img_path = os.path.join("media/faces", img_filename)
-    os.makedirs("media/faces", exist_ok=True)
-    cv2.imwrite(img_path, frame)
-
     try:
-        # ✅ Detect face before processing
-        detected_faces = DeepFace.extract_faces(img_path, detector_backend="opencv")
+        print("Face detection about to start")
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert to RGB
+        frame_resized = cv2.resize(frame_rgb, (160, 160))  # Resize to 160x160
+        print("Face detected ... now processing")
+
+        max_retries = 3  # Set a retry limit
+        retry_count = 0
+
+        while retry_count < max_retries:
+            detected_faces = DeepFace.extract_faces(frame_resized, detector_backend="opencv", enforce_detection=False)
+            
+            if detected_faces:  # If face is detected, break loop and proceed
+                break
+            
+            print(f"No face detected. Retrying... ({retry_count + 1}/{max_retries})")
+            retry_count += 1
 
         if not detected_faces:
-            return JsonResponse({"error": "No face detected. Try again in better lighting."}, status=400)
+            return JsonResponse({"success": False, "error": "No face detected try again after sometime."})
 
-        # ✅ Generate embedding vector
-        embeddings = DeepFace.represent(img_path, model_name="Facenet", enforce_detection=False)
+        print("Face extracted ... now embedding")
+        embeddings = DeepFace.represent(frame_resized, model_name="Facenet", enforce_detection=False)
+        print("Face embedding complete ... now processing")
 
         if not embeddings:
             return JsonResponse({"error": "No embedding generated."}, status=400)
 
-        embedding_vector = embeddings[0]["embedding"]
+        embedding_vector = np.array(embeddings[0]["embedding"], dtype=np.float32).tolist()  # Force float32
+        embedding_json = json.dumps({"vector": embedding_vector})
 
-        # ✅ Save embedding to refugee profile
+        _, img_encoded = cv2.imencode(".jpg", frame)
+        img_bytes = img_encoded.tobytes()
+
+        try:
+            client = ipfshttpclient.connect("/ip4/127.0.0.1/tcp/5001")
+            image_cid = client.add_bytes(img_bytes)
+            embedding_cid = client.add_bytes(embedding_json.encode("utf-8"))
+        except Exception as e:
+            logger.error("IPFS Error: %s", str(e))
+            return JsonResponse({"error": "Failed to upload to IPFS."}, status=500)
+
         try:
             refugee = Refugee.objects.get(full_name=full_name)
-            refugee.facial_embedding = json.dumps(embedding_vector)  
+            refugee.face_image_cid = image_cid
+            refugee.facial_embedding_ipfs = embedding_cid
             refugee.save()
         except Refugee.DoesNotExist:
             return JsonResponse({"error": "Refugee not found in the database."}, status=404)
 
+        with open("ipfs_records.txt", "a") as file:
+            file.write(f"Image CID: {image_cid}\nEmbedding CID: {embedding_cid}\n\n")
+
         return HttpResponseRedirect("/dashboard/")
 
     except ValueError as e:
-        print("Debug Error")
-        return JsonResponse({"error": str(e)}, status=400)
+        logger.error("Face processing error: %s", str(e))
+        return JsonResponse({"error": "Face recognition failed."}, status=400)
 
-# authenticate using facial recognition
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from .models import Refugee
-import cv2
-import numpy as np
-import base64
-from io import BytesIO
-from PIL import Image
-from deepface import DeepFace
-import json
-from scipy.spatial.distance import cosine
+# connect to local IPFS and fetch facial embedding
+# Ensure you have the IPFS daemon running locally
+# and the IPFS HTTP API is accessible at the specified address.
+
+LOCAL_IPFS_GATEWAY = "http://127.0.0.1:8080/ipfs/"
+
+def fetch_embedding_from_ipfs(cid):
+    """Retrieve the facial embedding from IPFS using the CID."""
+    url = f"{LOCAL_IPFS_GATEWAY}{cid}"
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        data = response.json()  # Parse JSON response
+
+        if isinstance(data, dict) and "vector" in data:
+            vector = data["vector"]
+            if isinstance(vector, list):
+                return np.array(vector, dtype=np.float32)  # Convert to float32
+            else:
+                print(f"Error: 'vector' is not a list, received: {type(vector)}")
+                return None
+        else:
+            print(f"Error: Response does not contain 'vector' key, received: {data}")
+            return None
+    except requests.RequestException as e:
+        print(f"Error fetching from IPFS: {e}")
+        return None
 
 @csrf_exempt
 def authenticate_refugee(request):
@@ -119,79 +228,70 @@ def authenticate_refugee(request):
     try:
         data = json.loads(request.body)
         image_data = data.get("image")
-
         if not image_data:
             return JsonResponse({"success": False, "error": "No image provided"})
 
-        # Decode base64 image
         image_bytes = base64.b64decode(image_data.split(",")[1])
         image = Image.open(BytesIO(image_bytes))
         image = np.array(image)
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)  # Convert to BGR for consistency
+        image = cv2.resize(image, (160, 160))  # Resize to 160x160
 
-        # Convert to OpenCV format
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-        # Extract face embedding directly
         embedding_result = DeepFace.represent(image, model_name="Facenet", enforce_detection=False)
         if not embedding_result:
             return JsonResponse({"success": False, "error": "No face detected"})
+        embedding = np.array(embedding_result[0]["embedding"], dtype=np.float32)  # Ensure float32
 
-        embedding = np.array(embedding_result[0]["embedding"]).flatten()  # Flatten embedding
+        try:
+            with open("ipfs_records.txt", "r") as file:
+                records = file.readlines()
+        except FileNotFoundError:
+            return JsonResponse({"success": False, "error": "IPFS records file not found."})
 
-        # Compare extracted embedding with stored embeddings
-        refugees = Refugee.objects.exclude(facial_embedding=None) 
+        for record in records:
+            if "Embedding CID:" in record:
+                embedding_cid = record.split("Embedding CID: ")[1].strip()
+                stored_embedding = fetch_embedding_from_ipfs(embedding_cid)
 
-        print("Debugging about to start")
+                if stored_embedding is not None:
+                    similarity_score = 1 - cosine(embedding, stored_embedding)
+                    threshold = 0.5
+                    
+                    print(f"Similarity Score: {similarity_score}")
+                    print("Stored Embedding:", np.round(stored_embedding[:5], 5))
+                    print("Newly Extracted Embedding:", np.round(embedding[:5], 5))
 
-        print(f"Total refugees with embeddings: {refugees.count()}")
+                    if similarity_score >= threshold:
+                        try:
+                            # Fetch refugee whose embedding CID matches
+                            refugee = Refugee.objects.get(facial_embedding_ipfs=embedding_cid)
 
+                            print("Debug: Received embedding_cid ->", embedding_cid)  # Add debug print
+                            
+                            print("Debug: Found refugee ->", refugee.full_name, refugee.nationality)  # Debugging
 
-        for refugee in refugees:
-
-            print("Debugging in the for loop started")
-            # Convert stored embedding from JSON
-            try:
-                stored_embedding = json.loads(refugee.facial_embedding)  # Convert from JSON string
-
-                # Ensure stored_embedding is a list containing at least one dictionary
-                if isinstance(stored_embedding, list) and len(stored_embedding) > 0:
-                    first_entry = stored_embedding[0]  # Extract the first dictionary
-
-                    if isinstance(first_entry, dict) and "embedding" in first_entry:
-                        stored_embedding = first_entry["embedding"]  # Extract the actual embedding list
-                    else:
-                        print("❌ Error: 'embedding' key not found in the stored data")
-                        continue  # Skip this refugee
-
+                            return JsonResponse({
+                                "success": True,
+                                "message": "Authentication successful via IPFS",
+                                "refugee": {
+                                    "name": refugee.full_name,
+                                    "nationality": refugee.nationality,
+                                    "status": refugee.refugee_status,
+                                    "dob": refugee.date_of_birth.strftime("%Y-%m-%d") if refugee.date_of_birth else "N/A",
+                                }
+                            })
+                        except Refugee.DoesNotExist:
+                            return JsonResponse({
+                                "success": False,
+                                "error": "Refugee record not found in the database, but matched via IPFS."
+                            })
+                        except Refugee.MultipleObjectsReturned:
+                            return JsonResponse({
+                                "success": False,
+                                "error": "Multiple refugees found with the same IPFS CID. Data inconsistency detected."
+                            })
                 else:
-                    print("❌ Error: Stored embedding is not a valid list")
-                    continue  # Skip this refugee
-
-                # Convert to NumPy array
-                stored_embedding = np.array(stored_embedding, dtype=np.float32).flatten()
-
-                # Debugging outputs
-                print(f"✅ Final stored embedding shape: {stored_embedding.shape}")
-                print(f"✅ First 5 values of stored embedding: {stored_embedding[:5]}")  # Preview
-
-                # Compute similarity
-                similarity_score = 1 - cosine(embedding, stored_embedding)
-                threshold = 0.6
-
-                if similarity_score >= threshold:
-                    return JsonResponse({
-                        "success": True,
-                        "name": refugee.name,
-                        "nationality": refugee.nationality,
-                        "age": refugee.age,
-                        "institution": refugee.registered_institution.name
-                    })
-
-            except Exception as e:
-                print(f"❌ Error processing {refugee.full_name}: {e}")
-                continue  # Skip and proceed to next refugee
-
-            return JsonResponse({"success": False, "error": "No matching refugee found"})
+                    return JsonResponse({"success": False, "error": "No matching refugee found in IPFS."})
 
 
     except Exception as e:
@@ -199,8 +299,6 @@ def authenticate_refugee(request):
 
 
 
-##
-##
 CustomUser = get_user_model()
 RP_ID = "localhost"
 CHALLENGES = {}
@@ -244,7 +342,8 @@ def register_refugee(request):
         form = RefugeeRegistrationForm(request.POST)
         if form.is_valid():
             refugee = form.save(commit=False)
-            
+
+            # Do not save fingerprint data in the database (scanning is for demo purposes ony)
             '''
             # Fingerprint data
             fingerprint_data = request.POST.get("fingerprint_data")

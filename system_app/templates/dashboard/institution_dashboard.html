@@ -93,20 +93,30 @@
             <p>No refugees found.</p>
         {% endif %}
         </div>
+
         <div class="records">
-            <h5>You'll find accessed resouces here</h5>
+            <button type="button" id="register-button" class="btn1 btn-success" onclick="window.location.href='http://127.0.0.1:8000/health-records/'">
+                Health Records
+            </button>
         </div>
 
+        <div class="appointments">
+            <button type="button" id="register-button" class="btn1 btn-success" onclick="window.location.href='http://127.0.0.1:8000/appointments/'">
+               View Appointments
+            </button>
+        </div>
+
+        <div class="refugee-verification">
         <div>
             <h3>Verify Refugee</h3>
             <button id="startVerification" class="btn btn-primary">Start Verification</button>
         </div>
-        
-        <video id="webcam" autoplay playsinline style=" width: 300px; border: 2px solid #000;"></video>
+        <video id="webcam" autoplay playsinline style=" margin-left: -5px; width: 235px; height: 255px; border: 2px solid rgb(107, 107, 107);"></video>
         <canvas id="canvas" style="display: none;"></canvas>
         
         <div id="refugeeDetails"></div>
-        
+    </div>
+
         <script>
         document.getElementById("startVerification").addEventListener("click", function () {
             const video = document.getElementById("webcam");
@@ -135,12 +145,13 @@
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
+                                const refugee = data.refugee;
                                 document.getElementById("refugeeDetails").innerHTML = `
                                     <h3>Authenticated Refugee</h3>
-                                    <p><strong>Name:</strong> ${data.name}</p>
-                                    <p><strong>Nationality:</strong> ${data.nationality}</p>
-                                    <p><strong>Age:</strong> ${data.age}</p>
-                                    <p><strong>Registered Institution:</strong> ${data.institution}</p>
+                                    <p><strong>Name:</strong> ${refugee.name}</p>
+                                    <p><strong>Nationality:</strong> ${refugee.nationality}</p>
+                                    <p><strong>Status:</strong> ${refugee.status}</p>
+                                    <p><strong>Date of Birth:</strong> ${refugee.dob}</p>
                                 `;
                             } else {
                                 alert("Authentication failed: " + data.error);
@@ -192,7 +203,7 @@
                                 <p><strong>Chronic Illnesses:</strong> ${chronicIllnesses}</p>
                                 <p><strong>Bank Account:</strong> ${bankAccount}</p>
                                 <p><strong>Aid Received:</strong> ${aidReceived}</p>
-                                <p><strong>Education Level:</strong> ${educationLevel}</p>
+                                <p><strong>Highest Education Level:</strong> ${educationLevel}</p>
                                 <p><strong>Work Experience:</strong> ${workExperience}</p>
                                 <p><strong>Previous Country:</strong> ${previousCountry}</p>
                             </div>

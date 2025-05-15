@@ -10,18 +10,28 @@ body {
 /* Additional styles to match index.css */
 .container {
     position: relative;
-    height: 1000px;
+    height: 1020px;
     width: 850px;
     border: 2px solid #0ef;
     background: transparent;
     box-shadow: 0 0 25px rgb(45, 108, 112);
     color: #0ef;
 }
+.outer{
+    height: 1250px;
+    width: 900px;
+    border: 2px solid #0ef;
+
+}
 
 .form-control{
     background-color: rgb(155, 155, 155);
     box-shadow:0 0 4px rgb(45, 108, 112);
     width: 60%;
+}
+
+#work-experience {
+    height: 150px;
 }
 
 .form-select {
